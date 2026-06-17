@@ -1,0 +1,11 @@
+{
+  "name": "excel-organizer-addin",
+  "version": "1.0.0",
+  "description": "Excel Organizer Agent Add-in",
+  "scripts": {
+    "start": "npx http-server src/taskpane -p 3001 --cors -o taskpane.html"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
