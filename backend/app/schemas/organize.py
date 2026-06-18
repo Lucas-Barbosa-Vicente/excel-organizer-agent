@@ -28,6 +28,7 @@ class OrganizeParameters(BaseModel):
     keep_original_sheet: Optional[bool] = True
     create_summary_sheet: Optional[bool] = False
     natural_language_instruction: Optional[str] = None
+    force_override: Optional[bool] = False
 
 
 class OrganizeRequest(BaseModel):
@@ -42,4 +43,6 @@ class OrganizeResponse(BaseModel):
     rows_before: int
     rows_after: int
     sheets_created: List[str]
-    download_token: str
+    download_token: Optional[str] = None
+    requires_confirmation: bool = False
+    existing_customizations: List[str] = []

@@ -85,6 +85,18 @@ Ele abre automaticamente:
 | **Colorir por regra** | Destaque linhas com base em condições |
 | **Dividir em abas** | Separe os dados por categoria automaticamente |
 | **Perfis** | Salve e reutilize configurações frequentes |
+| **Proteção de formatação** | Bloqueia alterações em planilhas com cores ou fórmulas já definidas |
+
+### Proteção contra alterações não autorizadas
+
+Antes de aplicar qualquer transformação, o agente verifica automaticamente se a planilha ativa contém formatação pré-existente:
+
+- **Fórmulas** — células com fórmulas Excel (`=SOMA`, `=PROCV`, etc.)
+- **Cores de preenchimento** — células com cor de fundo definida manualmente
+
+Se algum desses elementos for detectado, um **modal de confirmação** é exibido listando o que foi encontrado. O agente só prossegue com a autorização explícita do usuário.
+
+> Esta proteção se aplica a todos os modos de operação: instrução por IA, ferramentas manuais e perfis salvos.
 
 ### Exemplos de instruções para a IA
 
@@ -119,6 +131,16 @@ curl -X POST http://localhost:8000/api/organize \
 curl -X POST http://localhost:8000/api/organize \
   -F "file=@planilha.xlsx" \
   -F 'parameters={"natural_language_instruction":"Ordene por nome em ordem alfabetica e remova duplicatas"}'
+```
+
+### Prosseguir mesmo com formatação existente
+
+Se o arquivo contiver cores ou fórmulas, o backend retorna `requires_confirmation: true`. Para confirmar e prosseguir, envie novamente com `force_override: true`:
+
+```bash
+curl -X POST http://localhost:8000/api/organize \
+  -F "file=@planilha.xlsx" \
+  -F 'parameters={"sort_by":[{"column":"Nome","direction":"asc"}],"force_override":true}'
 ```
 
 ### Criar perfil

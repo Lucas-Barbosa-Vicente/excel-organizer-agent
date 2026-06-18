@@ -31,6 +31,8 @@ async def organize(
     except Exception:
         params = OrganizeParameters()
 
+    force_override = params.force_override or False
+
     processor = ExcelProcessor(upload_path)
     await processor.load()
 
@@ -38,6 +40,22 @@ async def organize(
     for df in processor.dataframes.values():
         available_columns = list(df.columns)
         break
+
+    # Check for existing customizations before applying any changes
+    if not force_override:
+        customizations = await asyncio.to_thread(processor.detect_customizations)
+        if customizations:
+            await asyncio.to_thread(os.remove, upload_path)
+            return OrganizeResponse(
+                status="requires_confirmation",
+                message="A planilha contém formatação pré-definida. Confirme para prosseguir.",
+                transformations_applied=[],
+                rows_before=0,
+                rows_after=0,
+                sheets_created=[],
+                requires_confirmation=True,
+                existing_customizations=customizations,
+            )
 
     if params.natural_language_instruction:
         if not settings.anthropic_api_key:
@@ -48,6 +66,7 @@ async def organize(
         params = await interpret_instruction(
             params.natural_language_instruction, available_columns
         )
+        params.force_override = force_override
 
     stats = await asyncio.wait_for(processor.apply_parameters(params), timeout=300)
 

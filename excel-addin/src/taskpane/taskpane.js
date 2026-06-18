@@ -182,21 +182,94 @@ function collectParams() {
   return params;
 }
 
+// ─── Existing customization detection ────────────────────────────────────────
+
+async function detectExistingCustomizations() {
+  try {
+    return await Excel.run(async (ctx) => {
+      const sheet = ctx.workbook.worksheets.getActiveWorksheet();
+      const range = sheet.getUsedRange();
+      range.load(["formulas", "rowCount", "columnCount"]);
+      await ctx.sync();
+
+      const findings = [];
+
+      // Check for formulas (cells starting with "=")
+      const hasFormulas = range.formulas.some((row) =>
+        row.some((cell) => typeof cell === "string" && cell.startsWith("="))
+      );
+      if (hasFormulas) findings.push("Fórmulas encontradas na planilha");
+
+      // Check for fill colors (limit to first 500 rows)
+      try {
+        const rowsToCheck = Math.min(range.rowCount, 500);
+        const sampleRange = sheet.getRangeByIndexes(
+          0, 0, rowsToCheck, range.columnCount
+        );
+        const cellPropsResult = sampleRange.getCellProperties({
+          format: { fill: { color: true } },
+        });
+        await ctx.sync();
+        const hasColors = cellPropsResult.value.some((row) =>
+          row.some((cell) => {
+            const color = cell.format && cell.format.fill && cell.format.fill.color;
+            return color !== null && color !== undefined && color !== "";
+          })
+        );
+        if (hasColors) findings.push("Cores de preenchimento definidas na planilha");
+      } catch (_) {
+        // getCellProperties not available in this environment, skip color check
+      }
+
+      return findings;
+    });
+  } catch (e) {
+    console.warn("[Proteção] Não foi possível detectar formatação:", e);
+    return [];
+  }
+}
+
+function showConfirmModal(customizations) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("confirm-modal");
+    const list = document.getElementById("confirm-list");
+    list.innerHTML = customizations.map((c) => `<li>${c}</li>`).join("");
+    modal.style.display = "flex";
+
+    const cleanup = (result) => {
+      modal.style.display = "none";
+      yesBtn.removeEventListener("click", onYes);
+      noBtn.removeEventListener("click", onNo);
+      resolve(result);
+    };
+    const onYes = () => cleanup(true);
+    const onNo = () => cleanup(false);
+
+    const yesBtn = document.getElementById("btn-confirm-yes");
+    const noBtn = document.getElementById("btn-confirm-no");
+    yesBtn.addEventListener("click", onYes);
+    noBtn.addEventListener("click", onNo);
+  });
+}
+
 // ─── API calls ───────────────────────────────────────────────────────────────
 
-async function organizeWithAI(instruction, fileBlob) {
+async function organizeWithAI(instruction, fileBlob, forceOverride = false) {
   const form = new FormData();
   form.append("file", fileBlob, "planilha.xlsx");
-  form.append("parameters", JSON.stringify({ natural_language_instruction: instruction }));
+  form.append(
+    "parameters",
+    JSON.stringify({ natural_language_instruction: instruction, force_override: forceOverride })
+  );
   const res = await fetch(`${API_BASE_URL}/organize`, { method: "POST", body: form });
   if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
   return res.json();
 }
 
-async function organizeWithParams(params, fileBlob) {
+async function organizeWithParams(params, fileBlob, forceOverride = false) {
   const form = new FormData();
   form.append("file", fileBlob, "planilha.xlsx");
-  form.append("parameters", JSON.stringify(params));
+  form.append("parameters", JSON.stringify({ ...params, force_override: forceOverride }));
   const res = await fetch(`${API_BASE_URL}/organize`, { method: "POST", body: form });
   if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
   return res.json();
@@ -260,10 +333,39 @@ function renderProfileList(profiles) {
 // ─── Main flow ───────────────────────────────────────────────────────────────
 
 async function runOrganize(getParamsFn) {
+  // Step 1: detect existing customizations before sending anything
+  let forceOverride = false;
+  const customizations = await detectExistingCustomizations();
+  if (customizations.length > 0) {
+    const confirmed = await showConfirmModal(customizations);
+    if (!confirmed) {
+      showToast("Operação cancelada.", "");
+      return;
+    }
+    forceOverride = true;
+  }
+
   showSpinner(true);
   try {
     const fileBlob = await getSheetDataAsBlob();
-    const result = await getParamsFn(fileBlob);
+    const result = await getParamsFn(fileBlob, forceOverride);
+
+    // Backend may also return requires_confirmation for actual xlsx files
+    if (result.requires_confirmation) {
+      showSpinner(false);
+      const confirmed = await showConfirmModal(result.existing_customizations);
+      if (!confirmed) {
+        showToast("Operação cancelada.", "");
+        return;
+      }
+      showSpinner(true);
+      const fileBlob2 = await getSheetDataAsBlob();
+      const result2 = await getParamsFn(fileBlob2, true);
+      showResult(result2);
+      showToast("Planilha organizada!", "success");
+      return;
+    }
+
     showResult(result);
     showToast("Planilha organizada!", "success");
   } catch (e) {
@@ -310,12 +412,12 @@ function bindEvents() {
   document.getElementById("btn-ai").addEventListener("click", () => {
     const instruction = document.getElementById("ai-instruction").value.trim();
     if (!instruction) { showToast("Digite uma instrução.", "error"); return; }
-    runOrganize((blob) => organizeWithAI(instruction, blob));
+    runOrganize((blob, fo) => organizeWithAI(instruction, blob, fo));
   });
 
   document.getElementById("btn-apply").addEventListener("click", () => {
     const params = collectParams();
-    runOrganize((blob) => organizeWithParams(params, blob));
+    runOrganize((blob, fo) => organizeWithParams(params, blob, fo));
   });
 
   document.getElementById("btn-add-sort").addEventListener("click", addSortRow);
@@ -343,6 +445,6 @@ function bindEvents() {
     if (!id) { showToast("Selecione um perfil.", "error"); return; }
     const res = await fetch(`${API_BASE_URL}/profiles/${id}`);
     const profile = await res.json();
-    runOrganize((blob) => organizeWithParams(profile.parameters, blob));
+    runOrganize((blob, fo) => organizeWithParams(profile.parameters, blob, fo));
   });
 }

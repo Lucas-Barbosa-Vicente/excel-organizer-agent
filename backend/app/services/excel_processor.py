@@ -54,6 +54,34 @@ class ExcelProcessor:
                 for sheet, fut in futures.items():
                     self.dataframes[sheet] = fut.result()
 
+    def detect_customizations(self) -> list[str]:
+        """Scan workbook for pre-existing colors and formulas. Returns list of findings."""
+        findings = []
+        try:
+            for ws in self.workbook.worksheets:
+                has_color = False
+                has_formula = False
+                for row in ws.iter_rows():
+                    for cell in row:
+                        if not has_color:
+                            fill = cell.fill
+                            if fill and fill.fill_type and fill.fill_type != "none":
+                                has_color = True
+                        if not has_formula:
+                            if isinstance(cell.value, str) and cell.value.startswith("="):
+                                has_formula = True
+                        if has_color and has_formula:
+                            break
+                    if has_color and has_formula:
+                        break
+                if has_color:
+                    findings.append(f"Cores de preenchimento na aba '{ws.title}'")
+                if has_formula:
+                    findings.append(f"Fórmulas existentes na aba '{ws.title}'")
+        except Exception as e:
+            logger.warning("Erro ao detectar customizações: %s", e)
+        return findings
+
     async def apply_parameters(self, params: OrganizeParameters) -> dict:
         sheet_name = self.workbook.active.title
         df = self.dataframes.get(sheet_name, pd.DataFrame())
