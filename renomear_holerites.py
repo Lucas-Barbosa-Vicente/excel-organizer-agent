@@ -1,13 +1,12 @@
 import re
 import os
+import sys
 import pandas as pd
 
-# ─── CONFIGURAÇÃO ─────────────────────────────────────────────────────────────
-
-PASTA_PDFS  = r"C:\Users\Lucas\Documents\HOLERITES"
-PLANILHA    = r"C:\Users\Lucas\Documents\Holerites renomear.xlsx"
-
-# ──────────────────────────────────────────────────────────────────────────────
+# Caminhos relativos à pasta onde este script está
+PASTA_BASE = os.path.dirname(os.path.abspath(__file__))
+PASTA_PDFS = os.path.join(PASTA_BASE, "HOLERITES")
+PLANILHA   = os.path.join(PASTA_BASE, "Holerites renomear.xlsx")
 
 
 def carregar_nomes(planilha: str) -> dict:
@@ -38,22 +37,26 @@ def renomear(pasta: str, lookup: dict):
             sem_match.append(pdf)
 
     if not renomeados:
-        print("Nenhum PDF encontrado para renomear.")
+        print("\nNenhum PDF encontrado para renomear.")
+        print("Verifique se os PDFs estão na pasta HOLERITES.")
         return
 
-    print(f"\nPrévia — {len(renomeados)} arquivo(s) serão renomeados:\n")
+    print(f"\nPrevia — {len(renomeados)} arquivo(s) serao renomeados:\n")
     for orig, novo in renomeados[:5]:
         print(f"  {orig}")
-        print(f"  → {novo}\n")
+        print(f"  -> {novo}\n")
     if len(renomeados) > 5:
         print(f"  ... e mais {len(renomeados) - 5} arquivo(s)\n")
 
     if sem_match:
-        print(f"Sem correspondência ({len(sem_match)}): {sem_match}\n")
+        print(f"Sem correspondencia na planilha ({len(sem_match)} arquivo(s)):")
+        for f in sem_match:
+            print(f"  - {f}")
+        print()
 
-    confirma = input("Confirmar renomeação? (s/n): ").strip().lower()
+    confirma = input("Confirmar renomeacao? (s/n): ").strip().lower()
     if confirma != "s":
-        print("Cancelado.")
+        print("\nCancelado. Nenhum arquivo foi alterado.")
         return
 
     for orig, novo in renomeados:
@@ -62,9 +65,26 @@ def renomear(pasta: str, lookup: dict):
             os.path.join(pasta, novo),
         )
 
-    print(f"\n✓ {len(renomeados)} arquivo(s) renomeados com sucesso.")
+    print(f"\n{len(renomeados)} arquivo(s) renomeados com sucesso!")
 
 
 if __name__ == "__main__":
-    lookup = carregar_nomes(PLANILHA)
-    renomear(PASTA_PDFS, lookup)
+    erros = []
+
+    if not os.path.exists(PLANILHA):
+        erros.append(f"Planilha nao encontrada: {PLANILHA}")
+    if not os.path.exists(PASTA_PDFS):
+        erros.append(f"Pasta de PDFs nao encontrada: {PASTA_PDFS}")
+
+    if erros:
+        print("\nERRO — Verifique os itens abaixo:")
+        for e in erros:
+            print(f"  - {e}")
+        sys.exit(1)
+
+    try:
+        lookup = carregar_nomes(PLANILHA)
+        renomear(PASTA_PDFS, lookup)
+    except Exception as e:
+        print(f"\nErro inesperado: {e}")
+        sys.exit(1)
