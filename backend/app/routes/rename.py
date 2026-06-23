@@ -7,7 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.schemas.rename import RenameResponse
-from app.services.pdf_renamer import build_renamed_zip, load_employees
+from app.services.pdf_renamer import build_renamed_zip, load_employees, MAX_PDF_BYTES
 
 router = APIRouter()
 
@@ -33,13 +33,27 @@ async def rename_pdfs(
         raise HTTPException(status_code=422, detail=f"Erro ao ler planilha: {e}")
 
     pdf_data: list[tuple[str, bytes]] = []
+    oversized_files: list[str] = []
     for pdf in pdf_files:
         content = await pdf.read()
-        pdf_data.append((pdf.filename or "arquivo.pdf", content))
+        fname = pdf.filename or "arquivo.pdf"
+        if len(content) > MAX_PDF_BYTES:
+            oversized_files.append(fname)
+        else:
+            pdf_data.append((fname, content))
 
-    zip_bytes, matched, unmatched, unmatched_files = await asyncio.to_thread(
-        build_renamed_zip, pdf_data, employees, output_pattern
-    )
+    try:
+        zip_bytes, matched, unmatched, unmatched_files = await asyncio.to_thread(
+            build_renamed_zip, pdf_data, employees, output_pattern
+        )
+    except (KeyError, ValueError) as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Padrão de saída inválido. Use apenas {{id}} e {{name}} como placeholders. Erro: {e}",
+        )
+
+    unmatched_files = unmatched_files + oversized_files
+    unmatched += len(oversized_files)
 
     if matched == 0:
         raise HTTPException(

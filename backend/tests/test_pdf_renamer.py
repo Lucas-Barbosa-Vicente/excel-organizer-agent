@@ -132,3 +132,15 @@ def test_build_renamed_zip_custom_pattern():
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         names = zf.namelist()
     assert "Ana Silva.pdf" in names
+
+
+def test_build_renamed_zip_sanitizes_path_traversal():
+    employees = [
+        {"id": "../../evil", "name": "Legit Name", "norm_id": "evil", "norm_name": "legit name"},
+    ]
+    pdf_files = [("holerite_evil.pdf", b"%PDF")]
+    zip_bytes, matched, _, _ = build_renamed_zip(pdf_files, employees, "{id} - {name}")
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        for name in zf.namelist():
+            assert ".." not in name
+            assert name == name.lstrip("/\\")

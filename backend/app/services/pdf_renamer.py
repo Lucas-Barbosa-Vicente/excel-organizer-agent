@@ -1,10 +1,20 @@
 import io
+import os
 import re
 import unicodedata
 import zipfile
 from typing import Optional
 
 import pandas as pd
+
+MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB per PDF
+
+
+def _sanitize_filename_part(value: str) -> str:
+    """Remove path separators and parent-dir sequences from a filename component."""
+    value = value.replace(os.sep, "_").replace("/", "_").replace("\\", "_")
+    value = value.replace("..", "_")
+    return value.strip()
 
 
 def normalize(text: str) -> str:
@@ -60,7 +70,9 @@ def build_renamed_zip(
                 unmatched += 1
                 unmatched_files.append(orig_name)
                 continue
-            new_stem = output_pattern.format(id=emp["id"], name=emp["name"])
+            safe_id = _sanitize_filename_part(emp["id"])
+            safe_name = _sanitize_filename_part(emp["name"])
+            new_stem = output_pattern.format(id=safe_id, name=safe_name)
             if new_stem in used_names:
                 used_names[new_stem] += 1
                 new_stem = f"{new_stem} ({used_names[new_stem]})"

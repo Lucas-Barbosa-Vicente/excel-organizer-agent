@@ -129,3 +129,36 @@ def test_download_zip_token_single_use():
 def test_download_zip_invalid_token():
     response = client.get("/api/download-zip/token-invalido-xyz")
     assert response.status_code == 404
+
+
+def test_rename_pdfs_invalid_output_pattern_returns_422():
+    excel = make_excel_bytes([{"Nome": "Ana Silva", "Matricula": "001"}])
+    response = client.post(
+        "/api/rename-pdfs",
+        data={"name_column": "Nome", "id_column": "Matricula", "output_pattern": "{id} - {nome}"},
+        files=[
+            ("excel_file", ("f.xlsx", excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+            ("pdf_files", ("holerite_001.pdf", make_pdf_bytes(), "application/pdf")),
+        ],
+    )
+    assert response.status_code == 422
+    assert "Padrão de saída inválido" in response.json()["detail"]
+
+
+def test_rename_pdfs_oversized_pdf_skipped():
+    from app.services.pdf_renamer import MAX_PDF_BYTES
+    excel = make_excel_bytes([{"Nome": "Ana Silva", "Matricula": "001"}])
+    big_pdf = b"X" * (MAX_PDF_BYTES + 1)
+    response = client.post(
+        "/api/rename-pdfs",
+        data={"name_column": "Nome", "id_column": "Matricula"},
+        files=[
+            ("excel_file", ("f.xlsx", excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+            ("pdf_files", ("holerite_001.pdf", make_pdf_bytes(), "application/pdf")),
+            ("pdf_files", ("gigante.pdf", big_pdf, "application/pdf")),
+        ],
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["matched"] == 1
+    assert "gigante.pdf" in body["unmatched_files"]
