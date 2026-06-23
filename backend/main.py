@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import create_tables
-from app.routes import health, organize, profiles
+from app.routes import health, organize, profiles, rename
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,3 +60,4 @@ async def startup():
 app.include_router(health.router, tags=["Saúde"])
 app.include_router(organize.router, prefix="/api", tags=["Organizar"])
 app.include_router(profiles.router, prefix="/api", tags=["Perfis"])
+app.include_router(rename.router, prefix="/api", tags=["Renomear PDFs"])
