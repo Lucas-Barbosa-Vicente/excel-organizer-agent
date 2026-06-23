@@ -1,21 +1,19 @@
 import logging
-import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.database import create_tables
-from app.routes import health, organize, profiles, rename
+from app.routes import health, rename
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Excel Organizer Agent",
+    title="PDF Renamer",
     version="1.0.0",
-    description="Organize planilhas Excel com inteligência artificial",
+    description="Renomeie PDFs de funcionários usando uma planilha Excel como base",
 )
 
 app.add_middleware(
@@ -44,20 +42,5 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-@app.on_event("startup")
-async def startup():
-    os.makedirs("storage/uploads", exist_ok=True)
-    os.makedirs("storage/outputs", exist_ok=True)
-    create_tables()
-    if not settings.anthropic_api_key:
-        logger.warning(
-            "ANTHROPIC_API_KEY não configurada — instruções em linguagem natural estarão desativadas."
-        )
-    else:
-        logger.info("ANTHROPIC_API_KEY detectada.")
-
-
 app.include_router(health.router, tags=["Saúde"])
-app.include_router(organize.router, prefix="/api", tags=["Organizar"])
-app.include_router(profiles.router, prefix="/api", tags=["Perfis"])
 app.include_router(rename.router, prefix="/api", tags=["Renomear PDFs"])
