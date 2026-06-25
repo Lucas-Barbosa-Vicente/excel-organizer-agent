@@ -1,54 +1,58 @@
+import io
 import os
 import zipfile
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
+import email as email_lib
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 import pytest
 
 
 # ── buscar_emails_holerite ────────────────────────────────────────────────────
 
-def _make_mail(subject: str):
-    item = MagicMock()
-    item.Subject = subject
-    return item
+def _make_imap(ids_bytes: bytes, msg: email_lib.message.Message):
+    imap = MagicMock()
+    imap.search.return_value = ("OK", [ids_bytes])
+    imap.fetch.return_value = ("OK", [(b"data", msg.as_bytes())])
+    return imap
 
 
-def _make_namespace(mail_items: list):
-    item_iter = MagicMock()
-    item_iter.__iter__ = MagicMock(return_value=iter(mail_items))
-    item_iter.Sort = MagicMock()
-    folder = MagicMock()
-    folder.Items = item_iter
-    ns = MagicMock()
-    ns.GetDefaultFolder.return_value = folder
-    return ns
-
-
-def test_buscar_emails_holerite_filtra_por_assunto():
+def test_buscar_emails_holerite_retorna_emails():
     from email_reader import buscar_emails_holerite
 
-    ns = _make_namespace([
-        _make_mail("Holerite Janeiro 2026"),
-        _make_mail("Reunião de equipe"),
-        _make_mail("HOLERITE Fevereiro"),
-    ])
-    resultado = buscar_emails_holerite(ns)
-    assert len(resultado) == 2
+    msg = email_lib.message_from_string("Subject: Holerite Janeiro 2026\n\n")
+    imap = _make_imap(b"1", msg)
 
+    resultado = buscar_emails_holerite(imap)
 
-def test_buscar_emails_holerite_lista_vazia_quando_nenhum():
-    from email_reader import buscar_emails_holerite
-
-    ns = _make_namespace([_make_mail("Sem relação")])
-    assert buscar_emails_holerite(ns) == []
-
-
-def test_buscar_emails_holerite_ignora_item_sem_subject():
-    from email_reader import buscar_emails_holerite
-
-    item_sem_subject = MagicMock(spec=[])
-    ns = _make_namespace([item_sem_subject, _make_mail("Holerite OK")])
-    resultado = buscar_emails_holerite(ns)
+    imap.select.assert_called_once_with("INBOX")
     assert len(resultado) == 1
+    assert resultado[0][1].get("Subject") == "Holerite Janeiro 2026"
+
+
+def test_buscar_emails_holerite_retorna_vazio():
+    from email_reader import buscar_emails_holerite
+
+    imap = MagicMock()
+    imap.search.return_value = ("OK", [b""])
+
+    resultado = buscar_emails_holerite(imap)
+    assert resultado == []
+
+
+def test_buscar_emails_holerite_multiplos():
+    from email_reader import buscar_emails_holerite
+
+    msg1 = email_lib.message_from_string("Subject: Holerite Jan\n\n")
+    msg2 = email_lib.message_from_string("Subject: Holerite Fev\n\n")
+
+    imap = MagicMock()
+    imap.search.return_value = ("OK", [b"1 2"])
+    msgs = {b"2": msg1, b"1": msg2}  # reversed iteration: 2 first, then 1
+    imap.fetch.side_effect = lambda eid, fmt: ("OK", [(b"data", msgs[eid].as_bytes())])
+
+    resultado = buscar_emails_holerite(imap)
+    assert len(resultado) == 2
 
 
 # ── escolher_email ────────────────────────────────────────────────────────────
@@ -56,21 +60,26 @@ def test_buscar_emails_holerite_ignora_item_sem_subject():
 def test_escolher_email_retorna_direto_quando_unico():
     from email_reader import escolher_email
 
-    mail = _make_mail("Holerite")
-    assert escolher_email([mail]) is mail
+    msg = email_lib.message_from_string("Subject: Holerite\n\n")
+    item = (b"1", msg)
+    assert escolher_email([item]) is item
 
 
 def test_escolher_email_pede_escolha_com_multiplos():
     from email_reader import escolher_email
 
-    mails = [_make_mail("Holerite Jan"), _make_mail("Holerite Fev")]
-    mails[0].ReceivedTime.strftime.return_value = "01/01/2026 08:00"
-    mails[1].ReceivedTime.strftime.return_value = "01/02/2026 08:00"
+    msg1 = email_lib.message_from_string(
+        "Subject: Holerite Jan\nDate: Thu, 01 Jan 2026 08:00:00 +0000\n\n"
+    )
+    msg2 = email_lib.message_from_string(
+        "Subject: Holerite Fev\nDate: Sun, 01 Feb 2026 08:00:00 +0000\n\n"
+    )
+    emails = [(b"1", msg1), (b"2", msg2)]
 
     with patch("builtins.input", return_value="2"):
-        resultado = escolher_email(mails)
+        resultado = escolher_email(emails)
 
-    assert resultado is mails[1]
+    assert resultado is emails[1]
 
 
 # ── baixar_e_extrair_zip ──────────────────────────────────────────────────────
@@ -78,24 +87,21 @@ def test_escolher_email_pede_escolha_com_multiplos():
 def test_baixar_e_extrair_zip_salva_e_extrai(tmp_path):
     from email_reader import baixar_e_extrair_zip
 
-    import io as _io
-    buf = _io.BytesIO()
+    buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("000003 EMILCE.pdf", b"%PDF")
     zip_bytes = buf.getvalue()
 
-    anexo = MagicMock()
-    anexo.FileName = "holerites.zip"
-    def salvar_zip(caminho):
-        with open(caminho, "wb") as f:
-            f.write(zip_bytes)
-    anexo.SaveAsFile.side_effect = salvar_zip
+    msg_mime = MIMEMultipart()
+    part = MIMEApplication(zip_bytes, Name="holerites.zip")
+    part["Content-Disposition"] = 'attachment; filename="holerites.zip"'
+    msg_mime.attach(part)
 
-    mail = MagicMock()
-    mail.Attachments.__iter__ = MagicMock(return_value=iter([anexo]))
+    msg = email_lib.message_from_bytes(msg_mime.as_bytes())
+    mail_item = (b"1", msg)
 
     pasta = str(tmp_path / "HOLERITES")
-    nomes = baixar_e_extrair_zip(mail, pasta)
+    nomes = baixar_e_extrair_zip(mail_item, pasta)
 
     assert "000003 EMILCE.pdf" in nomes
     assert os.path.exists(os.path.join(pasta, "000003 EMILCE.pdf"))
@@ -105,13 +111,11 @@ def test_baixar_e_extrair_zip_salva_e_extrai(tmp_path):
 def test_baixar_e_extrair_zip_erro_sem_zip(tmp_path):
     from email_reader import baixar_e_extrair_zip
 
-    anexo = MagicMock()
-    anexo.FileName = "documento.pdf"
-    mail = MagicMock()
-    mail.Attachments.__iter__ = MagicMock(return_value=iter([anexo]))
+    msg = email_lib.message_from_string("Subject: Holerite\n\nSem anexo.")
+    mail_item = (b"1", msg)
 
     with pytest.raises(FileNotFoundError):
-        baixar_e_extrair_zip(mail, str(tmp_path))
+        baixar_e_extrair_zip(mail_item, str(tmp_path))
 
 
 # ── enviar_holerite ───────────────────────────────────────────────────────────
@@ -122,16 +126,15 @@ def test_enviar_holerite_chama_send(tmp_path):
     pdf = tmp_path / "A000003_Emilce_Gomes_Holerite_202601.pdf"
     pdf.write_bytes(b"%PDF")
 
-    outlook = MagicMock()
-    mail_mock = MagicMock()
-    outlook.CreateItem.return_value = mail_mock
+    smtp = MagicMock()
 
-    enviar_holerite(outlook, "Emilce Gomes", "emilce@e.com",
+    enviar_holerite(smtp, "rh@empresa.com", "Emilce Gomes", "emilce@e.com",
                     str(pdf), "Holerite 01/2026", "Corpo do e-mail")
 
-    mail_mock.Send.assert_called_once()
-    assert mail_mock.To == "emilce@e.com"
-    assert mail_mock.Subject == "Holerite 01/2026"
+    smtp.sendmail.assert_called_once()
+    remetente, destinatario, _ = smtp.sendmail.call_args[0]
+    assert remetente == "rh@empresa.com"
+    assert destinatario == "emilce@e.com"
 
 
 # ── enviar_todos ──────────────────────────────────────────────────────────────
@@ -152,10 +155,9 @@ def test_enviar_todos_pula_sem_email(tmp_path):
         "assunto_email": "Holerite {mes}/{ano}",
         "corpo_email": "Ola {nome}, {mes}/{ano}",
     }
-    outlook = MagicMock()
-    outlook.CreateItem.return_value = MagicMock()
+    smtp = MagicMock()
 
-    enviados, falhas = enviar_todos(envios, config, outlook)
+    enviados, falhas = enviar_todos(envios, config, smtp, "rh@empresa.com")
 
     assert enviados == 1
     assert falhas == []
@@ -173,11 +175,10 @@ def test_enviar_todos_registra_falha(tmp_path):
         "assunto_email": "Holerite {mes}/{ano}",
         "corpo_email": "Ola {nome}",
     }
+    smtp = MagicMock()
+    smtp.sendmail.side_effect = Exception("SMTP error")
 
-    outlook = MagicMock()
-    outlook.CreateItem.side_effect = Exception("Outlook indisponivel")
-
-    enviados, falhas = enviar_todos(envios, config, outlook)
+    enviados, falhas = enviar_todos(envios, config, smtp, "rh@empresa.com")
 
     assert enviados == 0
     assert "Emilce Gomes" in falhas

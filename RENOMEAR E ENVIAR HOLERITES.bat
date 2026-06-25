@@ -21,11 +21,21 @@ if errorlevel 1 (
 )
 
 echo Verificando dependencias...
-python -c "import win32com, pandas, openpyxl" > nul 2>&1
+python -c "import pandas, openpyxl" > nul 2>&1
 if errorlevel 1 (
     echo Instalando dependencias, aguarde...
-    pip install pywin32 pandas openpyxl --quiet
+    pip install pandas openpyxl --quiet
     echo.
+)
+
+if not exist "%~dp0.env" (
+    color 0C
+    echo ERRO: arquivo .env nao encontrado.
+    echo Crie o arquivo .env com EMAIL_USUARIO e EMAIL_SENHA.
+    echo Consulte o arquivo .env.example para o formato correto.
+    echo.
+    pause
+    exit /b 1
 )
 
 for %%F in ("%~dp0Emails funcionarios.xlsx") do (

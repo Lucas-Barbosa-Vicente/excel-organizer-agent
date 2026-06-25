@@ -48,17 +48,37 @@ def substituir_placeholders(template: str, nome: str, mes: str, ano: str) -> str
     )
 
 
-def enviar_holerite(outlook_app, nome: str, email: str, arquivo: str,
-                    assunto: str, corpo: str):
-    mail = outlook_app.CreateItem(0)
-    mail.To = email
-    mail.Subject = assunto
-    mail.Body = corpo
-    mail.Attachments.Add(os.path.abspath(arquivo))
-    mail.Send()
+def conectar_smtp(usuario: str, senha: str,
+                  servidor: str = "smtp-mail.outlook.com") -> object:
+    import smtplib
+    smtp = smtplib.SMTP(servidor, 587)
+    smtp.ehlo()
+    smtp.starttls()
+    smtp.login(usuario, senha)
+    return smtp
 
 
-def enviar_todos(envios: list, config: dict, outlook_app) -> tuple:
+def enviar_holerite(smtp_conn, remetente: str, nome: str, email_dest: str,
+                    arquivo: str, assunto: str, corpo: str):
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.application import MIMEApplication
+
+    msg = MIMEMultipart()
+    msg["From"] = remetente
+    msg["To"] = email_dest
+    msg["Subject"] = assunto
+    msg.attach(MIMEText(corpo, "plain", "utf-8"))
+
+    with open(arquivo, "rb") as f:
+        part = MIMEApplication(f.read(), Name=os.path.basename(arquivo))
+    part["Content-Disposition"] = f'attachment; filename="{os.path.basename(arquivo)}"'
+    msg.attach(part)
+
+    smtp_conn.sendmail(remetente, email_dest, msg.as_string())
+
+
+def enviar_todos(envios: list, config: dict, smtp_conn, remetente: str) -> tuple:
     com_email = [e for e in envios if e["email"]]
     total = len(com_email)
     enviados = 0
@@ -78,7 +98,7 @@ def enviar_todos(envios: list, config: dict, outlook_app) -> tuple:
 
         try:
             enviar_holerite(
-                outlook_app, envio["nome"], envio["email"],
+                smtp_conn, remetente, envio["nome"], envio["email"],
                 envio["arquivo"], assunto, corpo
             )
             enviados += 1
