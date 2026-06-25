@@ -1,0 +1,4 @@
+{
+  "assunto_email": "Holerite {mes}/{ano}",
+  "corpo_email": "Olá {nome},\n\nSegue em anexo seu holerite referente a {mes}/{ano}.\n\nAtenciosamente,\nRH"
+}
