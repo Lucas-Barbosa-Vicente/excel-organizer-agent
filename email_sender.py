@@ -5,10 +5,20 @@ import pandas as pd
 
 
 def carregar_emails(planilha: str) -> dict:
-    df = pd.read_excel(planilha, dtype={"Matricula": str})
-    df["Matricula"] = df["Matricula"].str.strip().str.zfill(6)
-    df["Email"] = df["Email"].str.strip()
-    return dict(zip(df["Matricula"], df["Email"]))
+    # Localiza a linha do cabeçalho procurando por "matricula" (case-insensitive)
+    raw = pd.read_excel(planilha, header=None, dtype=str)
+    header_row = 0
+    for i, row in raw.iterrows():
+        if any("matricula" in str(v).lower() for v in row.values):
+            header_row = i
+            break
+
+    df = pd.read_excel(planilha, header=header_row, dtype=str)
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    df = df.dropna(subset=["matricula"])
+    df["matricula"] = df["matricula"].str.strip().str.lstrip("AaSs").str.zfill(6)
+    df["email"] = df["email"].str.strip()
+    return dict(zip(df["matricula"], df["email"]))
 
 
 def montar_envios(pasta_pdfs: str, lookup_emails: dict) -> list:
