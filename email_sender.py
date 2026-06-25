@@ -1,11 +1,18 @@
+import html
 import os
 import re
 
 import pandas as pd
 
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _email_valido(endereco: str) -> bool:
+    return bool(endereco and _EMAIL_RE.match(endereco))
+
+
 def carregar_emails(planilha: str) -> dict:
-    # Localiza a linha do cabeçalho procurando por "matricula" (case-insensitive)
     raw = pd.read_excel(planilha, header=None, dtype=str)
     header_row = 0
     for i, row in raw.iterrows():
@@ -18,7 +25,15 @@ def carregar_emails(planilha: str) -> dict:
     df = df.dropna(subset=["matricula"])
     df["matricula"] = df["matricula"].str.strip().str.lstrip("AaSs").str.zfill(6)
     df["email"] = df["email"].str.strip()
-    return dict(zip(df["matricula"], df["email"]))
+
+    resultado = {}
+    for _, row in df.iterrows():
+        email = row["email"]
+        if _email_valido(email):
+            resultado[row["matricula"]] = email
+        else:
+            resultado[row["matricula"]] = None
+    return resultado
 
 
 def montar_envios(pasta_pdfs: str, lookup_emails: dict) -> list:
@@ -46,6 +61,70 @@ def substituir_placeholders(template: str, nome: str, mes: str, ano: str) -> str
         .replace("{mes}", mes)
         .replace("{ano}", ano)
     )
+
+
+def conectar_sendgrid(api_key: str):
+    from sendgrid import SendGridAPIClient
+    return SendGridAPIClient(api_key)
+
+
+def enviar_holerite_sendgrid(sg_client, remetente: str, nome: str, email_dest: str,
+                              arquivo: str, assunto: str, corpo: str):
+    import base64
+    from sendgrid.helpers.mail import (
+        Mail, Attachment, FileContent, FileName, FileType, Disposition,
+    )
+
+    message = Mail(
+        from_email=remetente,
+        to_emails=email_dest,
+        subject=assunto,
+        html_content=html.escape(corpo).replace("\n", "<br>"),
+    )
+
+    with open(arquivo, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode()
+
+    attachment = Attachment(
+        FileContent(encoded),
+        FileName(os.path.basename(arquivo)),
+        FileType("application/pdf"),
+        Disposition("attachment"),
+    )
+    message.attachment = attachment
+    sg_client.send(message)
+
+
+def enviar_todos_sendgrid(envios: list, config: dict, sg_client, remetente: str) -> tuple:
+    com_email = [e for e in envios if e["email"]]
+    total = len(com_email)
+    enviados = 0
+    falhas = []
+
+    for envio in com_email:
+        m = re.search(r"_(\d{4})(\d{2})\.pdf$", envio["arquivo"])
+        ano = m.group(1) if m else "?"
+        mes = m.group(2) if m else "?"
+
+        assunto = substituir_placeholders(
+            config["assunto_email"], envio["nome"], mes, ano
+        )
+        corpo = substituir_placeholders(
+            config["corpo_email"], envio["nome"], mes, ano
+        )
+
+        try:
+            enviar_holerite_sendgrid(
+                sg_client, remetente, envio["nome"], envio["email"],
+                envio["arquivo"], assunto, corpo
+            )
+            enviados += 1
+            print(f"  Enviando {enviados}/{total}... {envio['nome']}")
+        except Exception as e:
+            falhas.append(envio["nome"])
+            print(f"  ERRO ao enviar para {envio['nome']}: {e}")
+
+    return enviados, falhas
 
 
 def conectar_smtp(usuario: str, senha: str,

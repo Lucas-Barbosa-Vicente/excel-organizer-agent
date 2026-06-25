@@ -5,10 +5,20 @@ import zipfile
 from email.header import decode_header
 
 
+_ZIP_MAX_BYTES = 500 * 1024 * 1024  # 500 MB
+
 def extrair_zip(caminho_zip: str, pasta_destino: str) -> list:
     os.makedirs(pasta_destino, exist_ok=True)
+    pasta_real = os.path.realpath(pasta_destino)
     with zipfile.ZipFile(caminho_zip, "r") as zf:
-        zf.extractall(pasta_destino)
+        total = sum(i.file_size for i in zf.infolist())
+        if total > _ZIP_MAX_BYTES:
+            raise ValueError(f"ZIP muito grande ({total // 1024 // 1024} MB). Limite: 500 MB.")
+        for membro in zf.infolist():
+            destino = os.path.realpath(os.path.join(pasta_real, membro.filename))
+            if not destino.startswith(pasta_real + os.sep) and destino != pasta_real:
+                raise ValueError(f"ZIP contém caminho inválido: {membro.filename}")
+        zf.extractall(pasta_real)
         return zf.namelist()
 
 

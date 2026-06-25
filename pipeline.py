@@ -73,7 +73,7 @@ def carregar_credenciais() -> tuple:
                 if "=" in linha and not linha.startswith("#"):
                     chave, valor = linha.split("=", 1)
                     credenciais[chave.strip()] = valor.strip()
-    return credenciais.get("EMAIL_USUARIO", ""), credenciais.get("EMAIL_SENHA", "")
+    return credenciais.get("SENDGRID_API_KEY", ""), credenciais.get("EMAIL_REMETENTE", "")
 
 
 def main():
@@ -90,10 +90,10 @@ def main():
             sys.exit(1)
 
     config = carregar_config(CONFIG_PATH)
-    usuario, senha = carregar_credenciais()
+    api_key, remetente = carregar_credenciais()
 
-    if not usuario or not senha:
-        print("\nERRO: EMAIL_USUARIO ou EMAIL_SENHA nao configurados no arquivo .env")
+    if not api_key or not remetente:
+        print("\nERRO: SENDGRID_API_KEY ou EMAIL_REMETENTE nao configurados no arquivo .env")
         sys.exit(1)
 
     print("\n[1/4] Localizando ZIP dos holerites...")
@@ -122,7 +122,9 @@ def main():
     print("  PDFs renomeados.")
 
     print("\n[4/4] Preparando conferencia...")
-    from email_sender import carregar_emails, montar_envios, enviar_todos, conectar_smtp
+    from email_sender import (
+        carregar_emails, montar_envios, conectar_sendgrid, enviar_todos_sendgrid,
+    )
     lookup_emails = carregar_emails(PLANILHA_EMAILS)
     envios = montar_envios(PASTA_PDFS, lookup_emails)
 
@@ -130,18 +132,15 @@ def main():
         print("\nCancelado. Nenhum e-mail foi enviado.")
         sys.exit(0)
 
-    print("\nConectando ao servidor SMTP...")
+    print("\nConectando ao SendGrid...")
     try:
-        smtp = conectar_smtp(usuario, senha)
+        sg = conectar_sendgrid(api_key)
     except Exception as e:
-        print(f"ERRO: Nao foi possivel conectar ao servidor SMTP: {e}")
+        print(f"ERRO: Nao foi possivel conectar ao SendGrid: {e}")
         sys.exit(1)
 
     print("Enviando holerites...")
-    try:
-        enviados, falhas = enviar_todos(envios, config, smtp, usuario)
-    finally:
-        smtp.quit()
+    enviados, falhas = enviar_todos_sendgrid(envios, config, sg, remetente)
 
     print(f"\n{enviados} e-mail(s) enviado(s) com sucesso.")
     if falhas:

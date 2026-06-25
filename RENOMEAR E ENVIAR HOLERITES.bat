@@ -21,17 +21,17 @@ if errorlevel 1 (
 )
 
 echo Verificando dependencias...
-python -c "import pandas, openpyxl" > nul 2>&1
+python -c "import pandas, openpyxl, sendgrid" > nul 2>&1
 if errorlevel 1 (
     echo Instalando dependencias, aguarde...
-    pip install pandas openpyxl --quiet
+    pip install pandas openpyxl sendgrid --quiet
     echo.
 )
 
 if not exist "%~dp0.env" (
     color 0C
     echo ERRO: arquivo .env nao encontrado.
-    echo Crie o arquivo .env com EMAIL_USUARIO e EMAIL_SENHA.
+    echo Crie o arquivo .env com SENDGRID_API_KEY e EMAIL_REMETENTE.
     echo Consulte o arquivo .env.example para o formato correto.
     echo.
     pause

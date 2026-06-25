@@ -12,3 +12,10 @@ build/
 venv/
 *.log
 .pytest_cache/
+
+# Dados sensíveis de funcionários — nunca commitar
+HOLERITES/
+*.xlsx
+*.xls
+*.zip
+testar_sendgrid.py
