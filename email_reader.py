@@ -24,7 +24,7 @@ def _decodificar_assunto(msg) -> str:
 
 
 def conectar_imap(usuario: str, senha: str,
-                  servidor: str = "imap-mail.outlook.com") -> imaplib.IMAP4_SSL:
+                  servidor: str = "outlook.office365.com") -> imaplib.IMAP4_SSL:
     conn = imaplib.IMAP4_SSL(servidor, 993)
     conn.login(usuario, senha)
     return conn

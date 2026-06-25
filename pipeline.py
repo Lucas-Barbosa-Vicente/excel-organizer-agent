@@ -48,6 +48,21 @@ def _executar_renomeacao(pasta_pdfs: str, lookup_nomes: dict):
             )
 
 
+def _encontrar_zip(pasta: str):
+    zips = [f for f in os.listdir(pasta) if f.lower().endswith(".zip")]
+    if len(zips) == 1:
+        return os.path.join(pasta, zips[0])
+    if len(zips) > 1:
+        print(f"\n{len(zips)} ZIPs encontrados na pasta:")
+        for i, z in enumerate(zips, 1):
+            print(f"  {i}. {z}")
+        while True:
+            escolha = input(f"Qual deseja usar? (1-{len(zips)}): ").strip()
+            if escolha.isdigit() and 1 <= int(escolha) <= len(zips):
+                return os.path.join(pasta, zips[int(escolha) - 1])
+    return None
+
+
 def carregar_credenciais() -> tuple:
     env_path = os.path.join(BASE, ".env")
     credenciais = {}
@@ -81,35 +96,22 @@ def main():
         print("\nERRO: EMAIL_USUARIO ou EMAIL_SENHA nao configurados no arquivo .env")
         sys.exit(1)
 
-    print("\n[1/4] Conectando ao servidor de e-mail e buscando holerite...")
-    from email_reader import (
-        conectar_imap, buscar_emails_holerite, escolher_email, baixar_e_extrair_zip
-    )
+    print("\n[1/4] Localizando ZIP dos holerites...")
+    caminho_zip = _encontrar_zip(BASE)
+    if caminho_zip:
+        print(f"  ZIP encontrado: {os.path.basename(caminho_zip)}")
+    else:
+        print("  Nenhum ZIP encontrado na pasta do projeto.")
+        print("  Baixe o ZIP do e-mail e cole o caminho abaixo.")
+        caminho_zip = input("  Caminho do arquivo ZIP: ").strip().strip('"')
+        if not os.path.exists(caminho_zip):
+            print(f"ERRO: Arquivo nao encontrado:\n  {caminho_zip}")
+            sys.exit(1)
 
-    try:
-        imap = conectar_imap(usuario, senha)
-    except Exception as e:
-        print(f"ERRO: Nao foi possivel conectar ao servidor de e-mail: {e}")
-        print("Verifique EMAIL_USUARIO e EMAIL_SENHA no arquivo .env")
-        sys.exit(1)
-
-    emails = buscar_emails_holerite(imap)
-    imap.logout()
-
-    if not emails:
-        print("Nenhum e-mail com holerite encontrado na caixa de entrada.")
-        sys.exit(0)
-
-    email_escolhido = escolher_email(emails)
-    eid, msg = email_escolhido
-    print(f"  E-mail selecionado: {msg.get('Subject', '')}")
-
-    print("\n[2/4] Baixando e extraindo ZIP...")
-    try:
-        baixar_e_extrair_zip(email_escolhido, PASTA_PDFS)
-    except FileNotFoundError as e:
-        print(f"ERRO: {e}")
-        sys.exit(1)
+    print("\n[2/4] Extraindo PDFs do ZIP...")
+    from email_reader import extrair_zip
+    nomes = extrair_zip(caminho_zip, PASTA_PDFS)
+    print(f"  {len(nomes)} arquivo(s) extraido(s).")
 
     print("\n[3/4] Renomeando PDFs...")
     from renomear_holerites import carregar_nomes, pedir_competencia
